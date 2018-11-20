@@ -1,0 +1,547 @@
+---
+title: "<font size = 6>Features of Startup Founders in US Health Care Industry</font>"
+author: "Mei Fu"
+date: "4/13/2017"
+output: 
+  html_document: 
+    toc: yes
+    toc_float: yes
+theme: cerulean
+runtime: shiny
+---
+
+```{r, message=FALSE, warning=FALSE, include=FALSE}
+library(igraph)
+library(stringr)
+library(data.table)
+library(plyr)
+library(dplyr)
+library(plotly)
+library(ggplot2)
+library(tm)
+library(wordcloud)
+```
+
+<br />
+
+<font color="#006792">
+
+### 1. QUESTION & MOTIVATION
+
+</font>
+
+> <font size = 3>This project is interested in illustrating some brief common features of founders who have a higher probability of success or more favored by venture capitals (raised at least one round) </font>
+
+<font size = 3>
+
+* **Q1: Do founders likely to have similar background?**
+: *How does their social networks look like?*
+
+* **Q2: What are the founders good at?**
+: *What are the most important / popular skills to be a good founder?*
+
+* **Q3: How is their influence power on the social media?**
+: *Do they have a lot of tweets, followers, retweets, likes?*
+
+* **Q4: What do they likely to talk about online?**
+: *Spreading idea? Talk about their*
+
+</font>
+
+<br />
+
+<font color="#006792">
+
+### 2. DATASET
+
+</font>
+
+<font size = 3>
+
+* **Angellist, Linkedin, Twitter**
+: *Networks: former companies and schools*
+: *Skil-sets: former position, major, and self-reported skills*
+: *Influence: Tweets, followers, retweets, Likes*
+![](data1.png)
+
+
+* **Filtering Criteria**
+![](data2.png)
+
+</font>
+
+<br />
+
+<font color="#006792">
+
+### Q1: Do founders likely to have similar background?
+
+: Used igraph library to draw 2 graphs to explore the founders' networks
+: Converted data into bipartite graph with founders on one side and their schools or companies on the other side
+: Used linked founders graph to show their relationship
+: Used Walktrap method to detect communities, and the idea is that short random walks tend to stay in the same community
+
+</font>
+
+<font size = 3>
+
+* **School networks**
+</font>
+
+```{r, echo=TRUE, message=FALSE, warning=FALSE}
+# load data
+school.data <- data.table(read.csv('startups_founder_networks_total_schools.csv'))
+
+# clean data
+school.cleaned <- list()
+count <- 0
+for (i in 1:nrow(school.data)) {
+  startup <- as.character(school.data[i,1][[1]])
+  founder1 <- as.character(school.data[i,2][[1]])
+  schools <- str_split(school.data[i,3][[1]], '\\|')
+  for (j in 1:length(schools[[1]])) {
+    count <- count + 1
+    school.cleaned[[count]] = c(startup, founder1, schools[[1]][j])
+  }
+}
+school.cleaned <- as.data.frame(school.cleaned)
+school.cleaned <- as.data.frame(t(school.cleaned))
+names(school.cleaned) <- c('Startup', 'Founder.Name', 'School')
+
+# build founders nodeset on one side
+founder_set1 <- as.data.frame(unique(school.cleaned[,2]))
+founder_set1 <- cbind(founder_set1, c(1:nrow(founder_set1)))
+names(founder_set1) <- c('Founder.Name','Founder.ID')
+founder_nodeset1 <- founder_set1$Founder.ID
+
+# build schools nodeset on the other side
+school_set <- as.data.frame(unique(school.cleaned[,3]))
+school_set <- cbind(school_set, c(1:nrow(school_set)))
+names(school_set) <- c('School','School.ID')
+school_nodeset <- school_set$School.ID
+
+# build their relationship
+school.School <- full_join(school_set, school.cleaned[,2:3], by = 'School')
+school.School <- full_join(founder_set1, school.School, by = 'Founder.Name')
+school.draw <- data.frame(school.School$School.ID, school.School$Founder.ID)
+names(school.draw) <- c('School.ID', 'Founder.ID')
+
+# use igraph to draw the bipartite graph and its projection graph
+g <- graph.empty()
+g <- add.vertices(g, nv=length(founder_nodeset1), attr=list(name=paste0('A',founder_nodeset1)), type=rep(TRUE,length(founder_nodeset1)))
+g <- add.vertices(g, nv=length(school_nodeset), attr=list(name=paste0('B',school_nodeset)), type=rep(FALSE,length(school_nodeset)))
+edgeListVec <- as.vector(t(as.matrix(data.frame(S1=paste0('A',school.draw$Founder.ID), S2=paste0('B',school.draw$School.ID)))))
+g <- add.edges(g, edgeListVec)
+
+is.bipartite(g)
+proj1 <- bipartite_projection(g, multiplicity = TRUE)
+
+# use walktrap to illustrate the potential communities
+# and use R shiny to draw an interactive graph with different random walk steps for walktrap
+output$school <- renderPlot({
+  m <- cluster_walktrap(proj1[[2]], weights = E(proj1[[2]])$weight, steps = input$number, merges = TRUE, modularity = TRUE, membership = TRUE)
+  plot(proj1[[2]], layout = layout.fruchterman.reingold, 
+          vertex.size = 3, vertex.color = adjustcolor(membership(m), alpha.f = 0.6), 
+          vertex.frame.color = adjustcolor('grey', alpha.f = 0.5),
+          vertex.label = NA, 
+          vertex.label.cex = 1.2, vertex.label.font = 2, vertex.label.color = adjustcolor('Black', alpha.f = 0.8),           vertex.label.degree = -pi/2,
+          edge.arrow.size = 0.8, edge.color = adjustcolor('grey', alpha.f = 0.5))
+})
+
+inputPanel(
+  sliderInput('number', label = 'Walktrap Steps:', value = 3, min = 1, max = 10)
+)
+
+renderUI({
+  plotOutput('school', height = 600, width = 600)
+})
+
+hahaha <- data.table(components(proj1[[2]])$csize)
+```
+```{r, eval=FALSE, message=FALSE, warning=FALSE, include=FALSE}
+#plot.igraph(g, layout=layout.bipartite, vertex.color=c("orange", "green")[V(g)$type+1])
+
+#g <- graph.data.frame(school.cleaned, directed = TRUE)
+#a = data.table(school.cleaned[,2])
+#a = unique(a[, V2 := .N, by = School])
+#select_school <- reactive({
+#  school <- a$School[a$V2 >= input$number]
+#})
+```
+
+
+```{r, eval=FALSE, message=FALSE, warning=FALSE, include=FALSE}
+ranked.schools <- as.data.table(school.cleaned[,3])
+top.schools <- subset(unique(ranked.schools[, .(Total.Number = .N), by = V1]), Total.Number > 4)
+names(top.schools) <- c('Schools','Counts')
+ggplot(top.schools, aes(x = reorder(V1, Total.Number, function(x) -x), y = Total.Number)) + geom_bar(stat = 'identity', fill = '#50b7c1') + labs(title = "Number of Schools appeared more than 2 Times", x = "", y = "Count") + theme(axis.text.x = element_text(size = 8, angle = 45, hjust=1))
+ggsave('plot_school.png')
+```
+
+
+
+<font size = 3>
+
+* **Former company networks**
+
+</font>
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+company.data <- data.table(read.csv('startups_founder_networks_total_companies.csv'))[,c(2,3)]
+company.cleaned <- list()
+count <- 0
+for (i in 1:nrow(company.data)) {
+  founder2 <- as.character(company.data[i,1][[1]])
+  companies <- str_split(company.data[i,2][[1]], '\\|')
+  for (j in 1:length(companies[[1]])) {
+    count <- count + 1
+    company.cleaned[[count]] = c(founder2, companies[[1]][j])
+  }
+}
+company.cleaned <- as.data.frame(company.cleaned)
+company.cleaned <- as.data.frame(t(company.cleaned))
+names(company.cleaned) <- c('Founder.Name', 'Company')
+
+founder_set2 <- as.data.frame(unique(company.cleaned[,1]))
+founder_set2 <- cbind(founder_set2, c(1:nrow(founder_set2)))
+names(founder_set2) <- c('Founder.Name','Founder.ID')
+founder_nodeset2 <- founder_set2$Founder.ID
+
+company_set <- as.data.frame(unique(company.cleaned[,2]))
+company_set <- cbind(company_set, c(1:nrow(company_set)))
+names(company_set) <- c('Company','Company.ID')
+company_nodeset <- company_set$Company.ID
+
+company.Company <- full_join(company_set, company.cleaned, by = 'Company')
+company.Company <- full_join(founder_set2, company.Company, by = 'Founder.Name')
+
+company.draw <- data.frame(company.Company$Company.ID, company.Company$Founder.ID)
+names(company.draw) <- c('Company.ID', 'Founder.ID')
+
+g2 <- graph.empty()
+g2 <- add.vertices(g2, nv=length(founder_nodeset2), attr=list(name=paste0('A',founder_nodeset2)),
+                                                 type=rep(TRUE,length(founder_nodeset2)))
+
+g2 <- add.vertices(g2, nv=length(company_nodeset), attr=list(name=paste0('B',company_nodeset)),
+                                                type=rep(FALSE,length(company_nodeset)))
+
+edgeListVec2 <- as.vector(t(as.matrix(data.frame(S1=paste0('A',company.draw$Founder.ID),
+                                                S2=paste0('B',company.draw$Company.ID)))))
+
+g2 <- add.edges(g2, edgeListVec2)
+
+#is.bipartite(g2)
+
+#plot.igraph(g, layout=layout.bipartite, vertex.color=c("orange", "green")[V(g)$type+1])
+
+#g <- graph.data.frame(school.cleaned, directed = TRUE)
+#a = data.table(school.cleaned[,2])
+#a = unique(a[, V2 := .N, by = School])
+#select_school <- reactive({
+#  school <- a$School[a$V2 >= input$number]
+#})
+
+proj2 <- bipartite_projection(g2, multiplicity = TRUE)
+
+output$company <- renderPlot({
+  m <- cluster_walktrap(proj2[[2]], weights = E(proj2[[2]])$weight, steps = input$number2, merges = TRUE, modularity = TRUE, membership = TRUE)
+  plot(proj2[[2]], layout = layout.fruchterman.reingold, 
+          vertex.size = 3, vertex.color = adjustcolor(membership(m), alpha.f = 0.6), 
+          vertex.frame.color = adjustcolor('grey', alpha.f = 0.5),
+          vertex.label = NA, 
+          vertex.label.cex = 1.2, vertex.label.font = 2, vertex.label.color = adjustcolor('Black', alpha.f = 0.8),           vertex.label.degree = -pi/2,
+          edge.arrow.size = 0.8, edge.color = adjustcolor('grey', alpha.f = 0.5))
+})
+
+inputPanel(
+  sliderInput('number2', label = 'Walktrap Steps:', value = 3, min = 1, max = 10)
+)
+
+renderUI({
+  plotOutput('company', height = 600, width = 600)
+})
+
+hahaha2 <- data.table(components(proj2[[2]])$csize)
+```
+
+```{r, eval=FALSE, message=FALSE, warning=FALSE, include=FALSE}
+ranked.companies <- as.data.table(company.cleaned[,2])
+top.companies <- subset(unique(ranked.companies[, .(Total.Number = .N), by = V1]), Total.Number > 2)
+Industry <- c('Technology','Technology','Technology','Academy','Academy','Consulting','Consulting','Consulting','Academy','Health','Health')
+top.companies$Industry <- Industry
+
+ggplot(top.companies, aes(x = reorder(V1, Total.Number, function(x) -x), y = Total.Number, fill = Industry)) + geom_bar(stat = 'identity') + scale_fill_manual(values = c('#78cdd1','#00a6ac','#2585a6', "#2570a1","#145b7d","#003366")) + labs(title = "Number of Former Companies appeared more than 2 Times", x = "Former Companies", y = "Count") + theme(axis.text.x = element_text(size = 9, angle = 45, hjust=1))
+ggsave('former_companies.png')
+```
+
+
+
+<font size = 3>
+
+* **Combined networks**
+
+</font>
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+#school.cleaned$Founder.Name <- as.character(school.cleaned$Founder.Name)
+#school.cleaned$School <- as.character(school.cleaned$School)
+#company.cleaned$Founder.Name <- as.character(company.cleaned$Founder.Name)
+#company.cleaned$Company <- as.character(company.cleaned$Company)
+
+combined.data <- data.frame(unique(full_join(school.cleaned, company.cleaned, by = 'Founder.Name')))
+aaa <- unique(combined.data[,2:1])
+bbb <- unique(combined.data[,2:3])
+ccc <- unique(combined.data[,c(2,4)])
+names(aaa) <- c('Founder.Name','Connections')
+names(bbb) <- c('Founder.Name','Connections')
+names(ccc) <- c('Founder.Name','Connections')
+connection.cleaned <- unique(rbind(aaa,bbb,ccc))
+#write.csv(connection.cleaned, 'connection_cleaned.csv')
+
+founder_set <- as.data.frame(unique(connection.cleaned[,1]))
+founder_set <- cbind(founder_set, c(1:nrow(founder_set)))
+names(founder_set) <- c('Founder.Name','Founder.ID')
+founder_nodeset <- founder_set$Founder.ID
+
+connection_set <- as.data.frame(unique(connection.cleaned[,2])) 
+connection_set <- cbind(connection_set, c(1:nrow(connection_set)))
+names(connection_set) <- c('Connections','Connection.ID')
+connection_nodeset <- connection_set$Connection.ID
+
+connection.Connection <- full_join(connection_set, connection.cleaned, by = 'Connections')
+connection.Connection <- full_join(founder_set, connection.Connection, by = 'Founder.Name')
+
+connection.draw <- data.frame(connection.Connection$Connection.ID, connection.Connection$Founder.ID)
+names(connection.draw) <- c('Connection.ID', 'Founder.ID')
+
+g3 <- graph.empty()
+g3 <- add.vertices(g3, nv=length(founder_nodeset), attr=list(name=paste0('A',founder_nodeset)),
+                                                 type=rep(TRUE,length(founder_nodeset)))
+
+g3 <- add.vertices(g3, nv=length(connection_nodeset), attr=list(name=paste0('B',connection_nodeset)),
+                                                type=rep(FALSE,length(connection_nodeset)))
+
+edgeListVec3 <- as.vector(t(as.matrix(data.frame(S1=paste0('A',connection.draw$Founder.ID),
+                                                 S2=paste0('B',connection.draw$Connection.ID)))))
+
+g3 <- add.edges(g3, edgeListVec3)
+
+proj3 <- bipartite_projection(g3, multiplicity = TRUE)
+
+output$connection <- renderPlot({
+  m <- cluster_walktrap(proj3[[2]], weights = E(proj3[[2]])$weight, steps = input$number3, merges = TRUE, modularity = TRUE, membership = TRUE)
+  plot(proj3[[2]], layout = layout.fruchterman.reingold, 
+          vertex.size = 3, vertex.color = adjustcolor(membership(m), alpha.f = 0.6), 
+          vertex.frame.color = adjustcolor('grey', alpha.f = 0.5),
+          vertex.label = NA, 
+          vertex.label.cex = 1.2, vertex.label.font = 2, vertex.label.color = adjustcolor('Black', alpha.f = 0.8), vertex.label.degree = -pi/2,
+          edge.arrow.size = 0.8, edge.color = adjustcolor('grey', alpha.f = 0.5))
+})
+
+inputPanel(
+  sliderInput('number3', label = 'Walktrap Steps:', value = 3, min = 1, max = 10)
+)
+
+renderUI({
+  plotOutput('connection', height = 700, width = 700)
+})
+
+hahaha3 <- data.table(components(proj3[[2]])$csize)
+mean_distance(proj3[[2]])
+```
+
+
+<font color="#006792">
+
+### Q2: Which schools and companies do they attend?
+
+</font>
+
+<font size = 3>
+
+* **Highest Degree**
+
+</font>
+
+```{r, echo=TRUE, message=FALSE, warning=FALSE}
+skills.data <- data.table(read.csv('startups_founder_skills_total.csv'))[,2:5]
+
+degree.cleaned <- list()
+count = 0
+for (i in 1:nrow(skills.data)) {
+  count = count + 1
+  degree.cleaned[[count]] <- str_split(skills.data[i,2][[1]], '\\|')[[1]][1]
+  degree.cleaned[[count]] <- str_split(degree.cleaned[[count]], '\\+')[[1]][1]
+  degree.cleaned[[count]] = c(tolower(degree.cleaned[[count]]))
+  degree.cleaned[[count]] = gsub("\\.|\\:|\\;|\\'|\\-|\\/\\&", '', degree.cleaned[[count]])
+  degree.cleaned[[count]] = sub('\\(.+\\)', ' ', degree.cleaned[[count]])
+  degree.cleaned[[count]] = str_trim(degree.cleaned[[count]])
+  degree.cleaned[[count]] = sub('bachelor of science|bachelors of science|bachelor of architecture|bachelor of applied science|bs in computer science|bs in actuarial science cum laude|bs in computer engineering|bs in engineering|bs in finance|bs in actuarial science cum laude|bs in engineering|bs economics|degree bs electrical engineering', 'bs', degree.cleaned[[count]])
+  degree.cleaned[[count]] = sub('basc|ba|bachelor of arts', 'ba', degree.cleaned[[count]])  
+  degree.cleaned[[count]] = sub('bachelor of business administration|bs in business administration', 'bba', degree.cleaned[[count]]) 
+  degree.cleaned[[count]] = sub("bachelor degree|bachelor of general studies|bachelors", 'bachelor', degree.cleaned[[count]]) 
+  degree.cleaned[[count]] = sub('bsmeng|master of science|master of engineering|masters of science', 'ms', degree.cleaned[[count]])  
+  degree.cleaned[[count]] = sub('master of arts|master of music', 'ma', degree.cleaned[[count]])  
+  degree.cleaned[[count]] = sub('mba on leave|mba with honors|master of business administration|masters of business', 'mba', degree.cleaned[[count]])  
+  degree.cleaned[[count]] = sub('executive mba', 'emba', degree.cleaned[[count]]) 
+  degree.cleaned[[count]] = sub("master degree|master degree candidate|masters|master in public administration|master in public administration|master of public policy|mfa|mpa|msc|mse|msed", 'master', degree.cleaned[[count]])   
+  degree.cleaned[[count]] = sub('doctorialphd|juris doctor|dphil|doctorial/doctorial|doctorial|mseecs and doctorial continuation|doctoral studies|doctor of philosophy|ph d in science|doctor of medicine|doctor of pharmacy|phd|md|jd|doctor of physical therapy|mastere&cs and doctorial continuation|doctor of physical therapy|doctor of law|postdoc|post doctorial|doctor of engineering|post doctoral|post doctoral fellowship', 'doctorial', degree.cleaned[[count]]) 
+}
+degree.cleaned <- as.data.table(degree.cleaned)
+degree.cleaned <- as.data.table(t(degree.cleaned))
+degree.cleaned[degree.cleaned == ''] = NA
+degree.cleaned <- na.omit(degree.cleaned)
+
+names(degree.cleaned) <- 'Degree'
+degree.cleaned$Degree <- ifelse(degree.cleaned$Degree == 'bachelor degree', 'bachelor', degree.cleaned$Degree)
+degree.cleaned$Degree <- ifelse(degree.cleaned$Degree == "bachelor's degree", 'bachelor', degree.cleaned$Degree)
+degree.cleaned$Degree <- ifelse(degree.cleaned$Degree == "master degree", 'master', degree.cleaned$Degree)
+degree.cleaned$Degree <- ifelse(degree.cleaned$Degree == "master's degree", 'master', degree.cleaned$Degree)
+degree.draw <- unique(degree.cleaned[, .(Total.Number = .N), by = Degree])[order(-rank(Total.Number), Degree)]
+
+
+degree.draw <- subset(degree.draw, Total.Number > 2)
+degree.draw$level <- ifelse(degree.draw$Degree %in% c('mba','doctorial','ms','master'), 'graduate', 'undergraduate')
+ggplot(degree.draw, aes(x = reorder(Degree, Total.Number, function(x) -x), y = Total.Number, fill = level)) + geom_bar(stat = 'identity') +  labs(title = 'Highest Obtained Degree', x = "Degree", y = "Count") + theme(axis.text.x = element_text(size = 9, angle = 45, hjust=1)) + scale_fill_manual(values = c("#006792","#50b7c1"))
+ggsave('Degree.png')
+```
+
+
+<font color="#006792">
+
+### Q3: What are the founders good at?
+
+</font>
+
+<font size = 3>
+
+* **Top Skills**
+
+</font>
+
+```{r, echo=TRUE, message=FALSE, warning=FALSE}
+top.skills.cleaned <- list()
+count = 0
+for (i in 1:nrow(skills.data)) {
+  top.skills <- str_split(skills.data[i,4][[1]], '\\|')
+  for (j in 1:length(top.skills[[1]])) {
+    count = count + 1
+    top.skills.cleaned[[count]] = c(top.skills[[1]][j])
+  }
+}
+top.skills.cleaned <- as.data.table(top.skills.cleaned)
+top.skills.cleaned <- as.data.table(t(top.skills.cleaned))
+top.skills.cleaned[top.skills.cleaned == ''] = NA
+top.skills.cleaned <- na.omit(top.skills.cleaned)
+names(top.skills.cleaned) <- 'Top.Skills'
+top.skills.draw <- unique(top.skills.cleaned[, .(Total.Number = .N), by = Top.Skills])[order(-rank(Total.Number), Top.Skills)]
+top.skills.draw <- subset(top.skills.draw, Total.Number > 50)
+
+ggplot(top.skills.draw, aes(x = reorder(Top.Skills, Total.Number, function(x) -x), y = Total.Number)) + geom_bar(stat = 'identity', fill = '#50b7c1') + labs(title = 'Most Self-defined Skills', x = "Skills", y = "Count") + theme(axis.text.x = element_text(size = 9, angle = 45, hjust=1))
+ggsave('skills.png')
+```
+
+
+<font size = 3>
+
+* **Top Majors**
+
+</font>
+
+```{r, echo=TRUE, message=FALSE, warning=FALSE}
+major.cleaned <- list()
+count = 0
+for (i in 1:nrow(skills.data)) {
+  majors <- str_split(skills.data[i,2][[1]], '\\|')
+  for (j in 1:lengths(majors)) {
+    major <- str_split(majors[[1]][j], '\\+')
+    if (lengths(major) > 1) {
+      count = count + 1
+      for (k in 1:lengths(major)) {
+        
+      }
+      major.cleaned[[count]] <- paste(major[[1]][2:lengths(major)], collapse = "")
+    } 
+  }
+}
+major.cleaned <- as.data.table(major.cleaned)
+major.cleaned <- as.data.table(t(major.cleaned))
+major.cleaned[major.cleaned == ''] = NA
+major.cleaned <- na.omit(major.cleaned)
+corpus_clean <- Corpus(VectorSource(major.cleaned))
+
+png('Major.png')
+wordcloud(corpus_clean, min.freq = 1, random.order = FALSE, colors = c('#78cdd1','#50b7c1','#00a6ac','#008792','#006792'))
+dev.off()
+```
+
+
+<font size = 3>
+
+* **Former Position (latest)**
+
+</font>
+
+```{r, echo=TRUE, message=FALSE, warning=FALSE}
+position.cleaned <- list()
+count = 0
+for (i in 1:nrow(skills.data)) {
+  count = count + 1
+  position.cleaned[[count]] = skills.data[i,3][[1]]
+}
+position.cleaned <- as.data.table(position.cleaned)
+position.cleaned <- as.data.table(t(position.cleaned))
+position.cleaned[position.cleaned == ''] = NA
+position.cleaned <- na.omit(position.cleaned)
+corpus_clean2 <- Corpus(VectorSource(position.cleaned))
+
+png('Position.png')
+wordcloud(corpus_clean2, min.freq = 1, random.order = FALSE, colors = c('#78cdd1','#50b7c1','#00a6ac','#008792','#006792'))
+dev.off()
+```
+
+
+```{r, echo=TRUE, message=FALSE, warning=FALSE}
+# influence.data <- data.table(read.csv('startups_founder_influence_total.csv'))
+# funding.data <- data.table(read.csv('startups_funding_total.csv'))
+
+# funding.selected <- funding.data[, .(Round = max(Round) + 1), by = Company.Name]
+# influence.data <- data.table(join(influence.data, funding.selected))
+# influence.data <- na.omit(influence.data)
+# influence.data <- subset(influence.data, !Round %in% c('4','5','6','7','8'))
+
+# write.csv(influence.data, 'startups_founder_influence_funding.csv')
+```
+
+```{r, echo=TRUE}
+influence.data <- data.table(read.csv('startups_founder_influence_funding.csv'))
+influence.data$Tweets <- as.numeric(influence.data$Tweets)
+influence.data$Round <- as.factor(influence.data$Round)
+
+ggplot(influence.data, aes(x = Round, y = Tweets, fill = Round, color = Round)) + geom_boxplot(alpha = 0.8) + labs(title = "Tweets per Round", x = element_blank()) + scale_fill_manual(values = c('#78cdd1','#50b7c1','#00a6ac','#008792','#2585a6', "#2570a1","#145b7d","#003366")) + scale_color_manual(values = c('#78cdd1','#50b7c1','#00a6ac','#008792','#2585a6', "#2570a1","#145b7d","#003366"))
+ggsave('Tweets.png')
+
+ggplot(influence.data, aes(x = Round, y = log(Followers), fill = Round, color = Round)) + geom_boxplot(alpha = 0.8) + labs(title = "Followers per Round", x = element_blank()) + scale_fill_manual(values = c('#78cdd1','#50b7c1','#00a6ac','#008792','#2585a6', "#2570a1","#145b7d","#003366")) + scale_color_manual(values = c('#78cdd1','#50b7c1','#00a6ac','#008792','#2585a6', "#2570a1","#145b7d","#003366"))
+ggsave('Follower.png')
+
+retweets <- influence.data[, c('Retweets','Round')]
+retweets$Retweets <- str_split(retweets$Retweets, '\\|')
+retweets <- retweets[, .(Retweets = unlist(Retweets)), by = Round]
+retweets$Retweets <- as.numeric(retweets$Retweets)
+retweets <- na.omit(retweets)
+ggplot(retweets, aes(x = Round, y = log(Retweets), fill = Round, color = Round)) + geom_point(alpha = 0.8, position = 'jitter') + labs(title = "Retweets per Round", x = element_blank()) + scale_fill_manual(values = c('#78cdd1','#50b7c1','#00a6ac','#008792','#2585a6', "#2570a1","#145b7d","#003366")) + scale_color_manual(values = c('#78cdd1','#50b7c1','#00a6ac','#008792','#2585a6', "#2570a1","#145b7d","#003366"))
+ggsave('Retweets.png')
+ggplot(retweets, aes(x = Round, y = log(Retweets), fill = Round, color = Round)) + geom_violin(alpha = 0.8) + labs(title = "Retweets per Round", x = element_blank()) + scale_fill_manual(values = c('#78cdd1','#50b7c1','#00a6ac','#008792','#2585a6', "#2570a1","#145b7d","#003366")) + scale_color_manual(values = c('#78cdd1','#50b7c1','#00a6ac','#008792','#2585a6', "#2570a1","#145b7d","#003366"))
+ggsave('Retweets1.png')
+
+likes <- influence.data[, c('Likes','Round')]
+likes$Likes <- str_split(likes$Likes, '\\|')
+likes <- likes[, .(Likes = unlist(Likes)), by = Round]
+likes$Likes <- as.numeric(likes$Likes)
+likes <- na.omit(likes)
+ggplot(likes, aes(x = Round, y = log(Likes), fill = Round, color = Round)) + geom_point(alpha = 0.8, position = 'jitter') + labs(title = "Likes per Round", x = element_blank()) + scale_fill_manual(values = c('#78cdd1','#50b7c1','#00a6ac','#008792','#2585a6', "#2570a1","#145b7d","#003366")) + scale_color_manual(values = c('#78cdd1','#50b7c1','#00a6ac','#008792','#2585a6', "#2570a1","#145b7d","#003366"))
+ggsave('Likes.png')
+ggplot(likes, aes(x = Round, y = log(Likes), fill = Round, color = Round)) + geom_violin(alpha = 0.8) + labs(title = "Likes per Round", x = element_blank()) + scale_fill_manual(values = c('#78cdd1','#50b7c1','#00a6ac','#008792','#2585a6', "#2570a1","#145b7d","#003366")) + scale_color_manual(values = c('#78cdd1','#50b7c1','#00a6ac','#008792','#2585a6', "#2570a1","#145b7d","#003366"))
+ggsave('Likes1.png')
+
+```

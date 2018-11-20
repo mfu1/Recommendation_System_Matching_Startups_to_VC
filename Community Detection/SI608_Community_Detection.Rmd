@@ -1,0 +1,82 @@
+---
+title: "Untitled"
+author: "Mei Fu"
+date: "4/8/2017"
+output: html_document
+---
+```{r}
+library(igraph)
+library(dplyr)
+library(data.table)
+```
+
+```{r, echo=TRUE, message=FALSE, warning=FALSE}
+bb <- read.table("inv_cate_graph_w.txt", sep='\t')
+bb <- subset(bb, V3 > 2)[, 1:2]
+names(bb) <- c('Cate','Inv')
+
+# build categories nodeset on one side
+cate_set1 <- as.data.frame(unique(bb[,1]))
+cate_set1 <- cbind(cate_set1, c(1:nrow(cate_set1)))
+names(cate_set1) <- c('Cate','Cate.ID')
+cate_nodeset1 <- cate_set1$Cate.ID
+
+# build categories nodeset on one side
+inv_set1 <- as.data.frame(unique(bb[,2]))
+inv_set1 <- cbind(inv_set1, c(1:nrow(inv_set1)))
+names(inv_set1) <- c('Inv','Inv.ID')
+inv_nodeset1 <- inv_set1$Inv.ID
+
+# build their relationship
+inv_cate <- full_join(bb, cate_set1, by = 'Cate')
+inv_cate <- full_join(inv_cate, inv_set1, by = 'Inv')
+draw <- data.frame(inv_cate$Cate.ID, inv_cate$Inv.ID)
+names(draw) <- c('Cate.ID', 'Inv.ID')
+
+# use igraph to draw the bipartite graph and its projection graph
+g <- graph.empty()
+g <- add.vertices(g, nv=length(cate_nodeset1), attr=list(name=paste0(unique(bb$Cate))),
+                  type=rep(TRUE,length(cate_nodeset1)))
+g <- add.vertices(g, nv=length(inv_nodeset1), attr=list(name=paste0(unique(bb$Inv))), 
+                  type=rep(FALSE,length(inv_nodeset1)))
+edgeListVec <- as.vector(t(as.matrix(data.frame(S1=paste0(bb$Cate), 
+                                                S2=paste0(bb$Inv)))))
+g <- add.edges(g, edgeListVec)
+
+is.bipartite(g)
+
+# 2 projection graphs
+proj1 <- bipartite_projection(g, multiplicity = TRUE)
+
+# use fast greedy to find investor communities with high modularity
+m <- cluster_fast_greedy(proj1[[2]], weights = E(proj1[[2]])$weight, merges = TRUE, modularity = TRUE, membership = TRUE)
+
+png('investors.png', width = 1200, height = 1200)
+
+plot(proj1[[2]], layout = layout.fruchterman.reingold, 
+          vertex.size = 3, vertex.color = membership(m), 
+          vertex.frame.color = 'grey',
+          vertex.label.cex = 1, vertex.label.font = 2, vertex.label.color = adjustcolor('Black', alpha.f = 0.5),           vertex.label.degree = -pi/2,
+          edge.arrow.size = 0.8, edge.color = adjustcolor('grey', alpha.f = 0.5))
+
+dev.off()
+modularity(m)
+investors <- as.matrix(membership(m))
+write.csv(investors,'investors.csv')
+
+# use the same method to find category clustering with high modularity
+n <- cluster_fast_greedy(proj1[[1]], weights = E(proj1[[1]])$weight, merges = TRUE, modularity = TRUE, membership = TRUE)
+
+png('categories.png', width = 1200, height = 1200)
+
+plot(proj1[[1]], layout = layout.fruchterman.reingold, 
+          vertex.size = 3, vertex.color = membership(n), 
+          vertex.frame.color = 'grey',
+          vertex.label.cex = 1, vertex.label.font = 2, vertex.label.color = adjustcolor('Black', alpha.f = 0.5),           vertex.label.degree = -pi/2,
+          edge.arrow.size = 0.8, edge.color = adjustcolor('grey', alpha.f = 0.5))
+
+dev.off()
+modularity(n)
+categories <- as.matrix(membership(n))
+write.csv(categories,'categories.csv')
+```
